@@ -1,0 +1,10 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+
+  _instanceof:
+    GeoNative\GarbageCollector\PrunableRepositoryInterface:
+      tags: [!php/const GeoNative\GarbageCollector\Services\GarbageCollector::PRUNABLE_REPOSITORY]
+
+  GeoNative\GarbageCollector\Tests\App\Repository\PruneMeRepository: ~
