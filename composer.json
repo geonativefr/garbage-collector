@@ -34,5 +34,10 @@
         "psr-4": {
             "GeoNative\\GarbageCollector\\Tests\\": "tests/"
         }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
     }
 }
