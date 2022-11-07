@@ -1,11 +1,11 @@
 # Doctrine Garbage Collector
 
-This package is a Symfony Bundle providing a "garbage collector" command 
+This package is a Symfony Bundle providing a "garbage collector" command
 to prune Doctrine entities that you consider stale.
 
 ## Installation
 
-PHP 8.0 or above is required. 
+PHP 8.0 or above is required.
 
 ```bash
 composer require geonative/garbage-collector
@@ -14,7 +14,7 @@ composer require geonative/garbage-collector
 ## Configuration
 
 1. Add the bundle into your `config/bundles.php` (likely to be done automatically with Symfony Flex).
- 
+
 2. Update your configuration:
 
 ```yaml
@@ -47,7 +47,7 @@ If your entities should be pruned against a DateTime column, you can use `GeoNat
 
 ## Usage
 
-### Oneshot 
+### Oneshot
 
 ```bash
 php bin/console gc:entities:prune
@@ -66,6 +66,15 @@ php bin/console gc:entities:prune --loop=5
 ```
 
 The Garbage Collector will pass every 5 seconds.
+
+### Lock
+
+If your application runs on multiple hosts, you may want to [prevent several instances](https://symfony.com/doc/current/console/lockable_trait.html)
+of the Garbage Collector from running simultaneously. To do so, just add a `--lock` option:
+
+```bash
+php bin/console gc:entities:prune --lock
+```
 
 ## Tests
 
