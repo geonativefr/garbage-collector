@@ -8,6 +8,7 @@ use GeoNative\GarbageCollector\Services\GarbageCollector;
 use React\EventLoop\Loop;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Command\LockableTrait;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -21,8 +22,10 @@ use function is_numeric;
 )]
 final class GarbageCollectorCommand extends Command
 {
+    use LockableTrait;
+
     public function __construct(
-        private GarbageCollector $garbageCollector
+        private GarbageCollector $garbageCollector,
     ) {
         parent::__construct();
     }
@@ -32,13 +35,24 @@ final class GarbageCollectorCommand extends Command
         $this->addOption(
             name: 'loop',
             mode: InputOption::VALUE_REQUIRED,
-            description: 'Runs garbage collector at the given interval, in seconds.'
+            description: 'Runs garbage collector at the given interval, in seconds.',
+        );
+        $this->addOption(
+            name: 'lock',
+            mode: InputOption::VALUE_NONE,
+            description: 'Prevent multiple garbage collector instances from running simultaneously.',
         );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+
+        if (true === $input->getOption('lock') && !$this->lock()) {
+            $output->writeln('The command is already running in another process.');
+
+            return Command::SUCCESS;
+        }
 
         $interval = $input->getOption('loop');
         if (is_numeric($interval)) {
