@@ -5,7 +5,7 @@ to prune Doctrine entities that you consider stale.
 
 ## Installation
 
-PHP 8.0 or above is required.
+PHP 8.1 or above is required.
 
 ```bash
 composer require geonative/garbage-collector
