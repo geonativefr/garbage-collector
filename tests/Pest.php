@@ -29,7 +29,7 @@ function app(): Kernel
     static $kernel;
 
     $kernel ??= (function () {
-        $testCase = new class () extends KernelTestCase {
+        $testCase = new class ('AppTests') extends KernelTestCase {
             public function getKernel(): KernelInterface
             {
                 self::bootKernel();
