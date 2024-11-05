@@ -8,11 +8,17 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-20.04
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       matrix:
         php:
-          - 8.0
           - 8.1
+          - 8.2
+          - 8.3
+        experimental: [false]
+        include:
+          - version: 8.4
+            experimental: true
     steps:
       - uses: actions/checkout@v4
 
