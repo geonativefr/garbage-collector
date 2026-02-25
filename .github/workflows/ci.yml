@@ -13,9 +13,11 @@ jobs:
       matrix:
         php:
           - 8.3
+          - 8.4
+          - 8.5
         experimental: [false]
         include:
-          - version: 8.4
+          - version: 8.6
             experimental: true
     steps:
       - uses: actions/checkout@v4
