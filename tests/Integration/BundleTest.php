@@ -13,12 +13,7 @@ use GeoNative\GarbageCollector\Tests\App\Repository\PruneMeRepository;
 use function repository;
 
 beforeAll(function () {
-    create_database();
     create_schema();
-});
-
-afterAll(function () {
-    drop_database();
 });
 
 it('prunes entities', function () {

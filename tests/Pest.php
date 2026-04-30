@@ -2,11 +2,9 @@
 
 declare(strict_types=1);
 
-use Doctrine\Common\Util\ClassUtils;
+use Doctrine\Persistence\Proxy;
 use GeoNative\GarbageCollector\Tests\App\Kernel;
 use Doctrine\Bundle\DoctrineBundle\Registry;
-use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Types\Type;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\EntityRepository;
@@ -52,36 +50,6 @@ function container(): ContainerInterface
     return app()->getContainer()->get('test.service_container');
 }
 
-/**
- * Create database if not exists.
- */
-function create_database(): void
-{
-    /** @var Registry $doctrine */
-    $doctrine = container()->get('doctrine');
-
-    /** @var Connection $connection */
-    $connection = $doctrine->getConnection($doctrine->getDefaultConnectionName());
-
-    $params = $connection->getParams();
-    $tmpConnection = DriverManager::getConnection($params);
-    $tmpConnection->connect();
-
-    $tmpConnection->getSchemaManager()?->createDatabase($params['path']);
-}
-
-function drop_database(): void
-{
-    /** @var Registry $doctrine */
-    $doctrine = container()->get('doctrine');
-
-    /** @var Connection $connection */
-    $connection = $doctrine->getConnection($doctrine->getDefaultConnectionName());
-
-    $params = $connection->getParams();
-    $connection->getSchemaManager()?->dropDatabase($params['path']);
-}
-
 function create_schema(): void
 {
     /** @var Registry $doctrine */
@@ -96,7 +64,11 @@ function create_schema(): void
 function save(object ...$entities): void
 {
     foreach ($entities as $entity) {
-        $entityManager = entityManager(ClassUtils::getRealClass($entity::class)); // @phpstan-ignore-line
+        $realClass = $entity instanceof Proxy
+            ? get_parent_class($entity)
+            : $entity::class;
+
+        $entityManager = entityManager($realClass); // @phpstan-ignore-line
         $entityManager->persist($entity);
         $entityManager->flush();
     }
