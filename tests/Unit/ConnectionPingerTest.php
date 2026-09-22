@@ -22,6 +22,7 @@ it('closes and queries again a connection the server has dropped', function () {
         'memory' => true,
         'wrapperClass' => FlakyConnection::class,
     ]);
+    $connection->failNextQuery = true;
 
     $entityManager = $this->createMock(EntityManagerInterface::class);
     $entityManager->method('getConnection')->willReturn($connection);
