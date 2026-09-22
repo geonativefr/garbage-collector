@@ -19,7 +19,7 @@ use Doctrine\DBAL\Result;
 final class FlakyConnection extends Connection
 {
     /**
-     * @var list<string>
+     * @var string[]
      */
     public array $events = [];
 

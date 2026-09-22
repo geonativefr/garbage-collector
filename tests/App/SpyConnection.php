@@ -14,7 +14,7 @@ use Doctrine\DBAL\Result;
 final class SpyConnection extends Connection
 {
     /**
-     * @var list<string>
+     * @var string[]
      */
     public array $executedSql = [];
 
