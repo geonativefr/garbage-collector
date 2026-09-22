@@ -135,13 +135,18 @@ it('pings the connection of the repository own manager before pruning', function
     expect($removed ?? null)->toBe(1);
     $ping = array_search($connection->getDatabasePlatform()->getDummySelectSQL(), $connection->executedSql, true);
     $delete = null;
+    $logSelect = null;
     foreach ($connection->executedSql as $index => $sql) {
-        if (str_starts_with($sql, 'DELETE FROM prune_me')) {
+        if (null === $delete && str_starts_with($sql, 'DELETE FROM prune_me')) {
             $delete = $index;
-            break;
+        }
+        if (null === $logSelect && str_starts_with($sql, 'SELECT') && str_contains($sql, 'garbage_collector_log')) {
+            $logSelect = $index;
         }
     }
     expect($ping)->not->toBeFalse('no dummy select was issued on the repository connection');
     expect($delete)->not->toBeNull('the prune did not delete anything');
+    expect($logSelect)->not->toBeNull('the log table was never read');
     expect($ping)->toBeLessThan($delete);
+    expect($ping)->toBeLessThan($logSelect, 'the log manager was not pinged before the first read of its table');
 });
