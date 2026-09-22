@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use Doctrine\Persistence\Proxy;
 use GeoNative\GarbageCollector\Tests\App\Kernel;
-use Doctrine\Bundle\DoctrineBundle\Registry;
 use Doctrine\DBAL\Types\Type;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\EntityRepository;
@@ -52,13 +51,15 @@ function container(): ContainerInterface
 
 function create_schema(): void
 {
-    /** @var Registry $doctrine */
-    $doctrine = container()->get('doctrine');
-    /** @var EntityManagerInterface $entityManager */
-    $entityManager = container()->get(EntityManagerInterface::class);
-    $schemaTool = new SchemaTool($entityManager);
-    $classes = $entityManager->getMetadataFactory()->getAllMetadata();
-    $schemaTool->createSchema($classes);
+    /** @var ManagerRegistry $doctrine */
+    $doctrine = container()->get(ManagerRegistry::class);
+
+    foreach ($doctrine->getManagers() as $entityManager) {
+        /** @var EntityManagerInterface $entityManager */
+        $schemaTool = new SchemaTool($entityManager);
+        $classes = $entityManager->getMetadataFactory()->getAllMetadata();
+        $schemaTool->createSchema($classes);
+    }
 }
 
 function save(object ...$entities): void
