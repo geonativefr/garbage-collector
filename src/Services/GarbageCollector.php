@@ -29,6 +29,7 @@ final class GarbageCollector
      */
     public function __construct(
         private ManagerRegistry $managerRegistry,
+        private ConnectionPinger $connectionPinger,
         iterable $repositories
     ) {
         foreach ($repositories as $repository) {
@@ -54,6 +55,8 @@ final class GarbageCollector
         }
 
         $log = $this->createLog($class);
+
+        $this->connectionPinger->pingConnectionFor($class);
 
         $start = microtime(true);
         $log->removed = $repository->pruneStaleEntities();
