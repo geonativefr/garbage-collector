@@ -10,7 +10,11 @@ use GeoNative\GarbageCollector\Entity\GarbageCollectorLog;
 use GeoNative\GarbageCollector\Services\GarbageCollector;
 use GeoNative\GarbageCollector\Tests\App\Entity\PruneMe;
 use GeoNative\GarbageCollector\Tests\App\Repository\PruneMeRepository;
+use GeoNative\GarbageCollector\Tests\App\SpyConnection;
+
+use function array_search;
 use function repository;
+use function str_starts_with;
 
 beforeAll(function () {
     create_schema();
@@ -100,4 +104,49 @@ it('prunes entities', function () {
     expect($logs)->toHaveCount(2);
     expect($logs[0]->lastCheckedAt->format('YmdHis') <=> $lastCheckedAt->format('YmdHis'))->toBe(1);
     expect($logs[0]->lastPrunedAt->format('YmdHis') <=> $lastPrunedAt->format('YmdHis'))->toBe(1);
+});
+
+it('pings the connection of the repository own manager before pruning', function () {
+    /** @var GarbageCollector $garbageCollector */
+    $garbageCollector = container()->get(GarbageCollector::class);
+
+    /** @var ObjectRepository $logRepository */
+    $logRepository = repository(GarbageCollectorLog::class);
+
+    // Given: a stale entity, and a log old enough for the next check to be performed
+    /** @var GarbageCollectorLog[] $logs */
+    $logs = $logRepository->findBy([], ['id' => 'DESC']);
+    $logs[0]->lastCheckedAt = $logs[0]->lastCheckedAt->modify('-2 hours');
+    save($logs[0]);
+    entityManager()->clear();
+    save(new PruneMe(new DateTimeImmutable('-1 year')));
+
+    // The connection the DELETE will run on is the one of the manager owning the pruned class
+    $connection = entityManager(PruneMe::class)->getConnection();
+    expect($connection)->toBeInstanceOf(SpyConnection::class);
+    $connection->executedSql = [];
+
+    // When
+    foreach ($garbageCollector->prune() as $class => $removed) {
+        break;
+    }
+
+    // Then
+    expect($removed ?? null)->toBe(1);
+    $ping = array_search($connection->getDatabasePlatform()->getDummySelectSQL(), $connection->executedSql, true);
+    $delete = null;
+    $logSelect = null;
+    foreach ($connection->executedSql as $index => $sql) {
+        if (null === $delete && str_starts_with($sql, 'DELETE FROM prune_me')) {
+            $delete = $index;
+        }
+        if (null === $logSelect && str_starts_with($sql, 'SELECT') && str_contains($sql, 'garbage_collector_log')) {
+            $logSelect = $index;
+        }
+    }
+    expect($ping)->not->toBeFalse('no dummy select was issued on the repository connection');
+    expect($delete)->not->toBeNull('the prune did not delete anything');
+    expect($logSelect)->not->toBeNull('the log table was never read');
+    expect($ping)->toBeLessThan($delete);
+    expect($ping)->toBeLessThan($logSelect, 'the log manager was not pinged before the first read of its table');
 });

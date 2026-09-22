@@ -67,6 +67,11 @@ php bin/console gc:entities:prune --loop=5
 
 The Garbage Collector will pass every 5 seconds.
 
+Before pruning a class, the Garbage Collector checks the connection of the entity manager owning it,
+and reconnects it if the server has dropped it. A repository checked only once in a while leaves its
+connection idle in between, long enough for the server to close it: without that check, the first
+statement of the next prune would fail in a long-running loop.
+
 ### Lock
 
 If your application runs on multiple hosts, you may want to [prevent several instances](https://symfony.com/doc/current/console/lockable_trait.html)

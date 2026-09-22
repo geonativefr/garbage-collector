@@ -29,6 +29,7 @@ final class GarbageCollector
      */
     public function __construct(
         private ManagerRegistry $managerRegistry,
+        private ConnectionPinger $connectionPinger,
         iterable $repositories
     ) {
         foreach ($repositories as $repository) {
@@ -38,6 +39,8 @@ final class GarbageCollector
 
     public function prune(): Generator
     {
+        $this->connectionPinger->pingConnectionFor(GarbageCollectorLog::class);
+
         foreach ($this->classes as $class) {
             yield $class => $this->pruneEntitiesFromClass($class);
         }
@@ -45,15 +48,17 @@ final class GarbageCollector
 
     private function pruneEntitiesFromClass(string $class): int
     {
-        /** @var PrunableRepositoryInterface $repository */
-        $repository = $this->managerRegistry->getRepository($class); // @phpstan-ignore-line
-
         $lastLog = $this->getLastLog($class);
         if (!$this->shouldPerformCheck($class, $lastLog)) {
             return 0;
         }
 
         $log = $this->createLog($class);
+
+        $this->connectionPinger->pingConnectionFor($class);
+
+        /** @var PrunableRepositoryInterface $repository */
+        $repository = $this->managerRegistry->getRepository($class); // @phpstan-ignore-line
 
         $start = microtime(true);
         $log->removed = $repository->pruneStaleEntities();

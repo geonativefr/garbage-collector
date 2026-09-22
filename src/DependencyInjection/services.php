@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GeoNative\GarbageCollector\DependencyInjection;
 
 use GeoNative\GarbageCollector\Command\GarbageCollectorCommand;
+use GeoNative\GarbageCollector\Services\ConnectionPinger;
 use GeoNative\GarbageCollector\Services\GarbageCollector;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 
@@ -17,6 +18,9 @@ return static function (ContainerConfigurator $container) {
         ->private()
         ->autoconfigure()
         ->autowire();
+
+    $services
+        ->set(ConnectionPinger::class);
 
     $services
         ->set(GarbageCollector::class)
