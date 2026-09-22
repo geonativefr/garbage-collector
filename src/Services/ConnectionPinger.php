@@ -32,13 +32,9 @@ final class ConnectionPinger
 
         $connection = $entityManager->getConnection();
 
-        if ($connection instanceof PrimaryReadReplicaConnection) {
-            // Check the connection the writes will actually run on.
-            $connection->ensureConnectedToPrimary();
-        }
+        $this->ensureConnectedToPrimary($connection);
 
         if (!$connection->isConnected()) {
-            // A lazy connection opens itself on the first query, there is nothing to check.
             return;
         }
 
@@ -46,18 +42,25 @@ final class ConnectionPinger
             $this->executeDummySql($connection);
         } catch (DBALException) {
             $connection->close();
-            // Attempt to reestablish the lazy connection by sending another query.
+            $this->ensureConnectedToPrimary($connection);
             $this->executeDummySql($connection);
         }
 
         if (!$entityManager->isOpen()) {
-            $this->managerRegistry->resetManager($this->getManagerName($entityManager));
+            $name = $this->getManagerName($entityManager);
+            if (null !== $name) {
+                $this->managerRegistry->resetManager($name);
+            }
         }
     }
 
-    /**
-     * @throws DBALException
-     */
+    private function ensureConnectedToPrimary(Connection $connection): void
+    {
+        if ($connection instanceof PrimaryReadReplicaConnection) {
+            $connection->ensureConnectedToPrimary();
+        }
+    }
+
     private function executeDummySql(Connection $connection): void
     {
         $connection->executeQuery($connection->getDatabasePlatform()->getDummySelectSQL());
