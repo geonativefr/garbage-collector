@@ -101,6 +101,26 @@ it('does not query a connection that never opened', function () {
     (new ConnectionPinger($managerRegistry))->pingConnectionFor(PruneMe::class);
 });
 
+it('resets the manager when both the connection and the manager are already closed', function () {
+    // Given
+    $connection = $this->createMock(Connection::class);
+    $connection->method('isConnected')->willReturn(false);
+    $connection->expects($this->never())->method('executeQuery');
+
+    $entityManager = $this->createMock(EntityManagerInterface::class);
+    $entityManager->method('getConnection')->willReturn($connection);
+    $entityManager->method('isOpen')->willReturn(false);
+
+    $managerRegistry = $this->createMock(ManagerRegistry::class);
+    $managerRegistry->method('getManagerForClass')->with(PruneMe::class)->willReturn($entityManager);
+    $managerRegistry->method('getManagerNames')->willReturn(['default' => 'doctrine.orm.default_entity_manager']);
+    $managerRegistry->method('getManager')->with('default')->willReturn($entityManager);
+    $managerRegistry->expects($this->once())->method('resetManager')->with('default');
+
+    // When
+    (new ConnectionPinger($managerRegistry))->pingConnectionFor(PruneMe::class);
+});
+
 it('pings the primary of a primary-replica connection', function () {
     // Given
     /** @var SpyPrimaryReadReplicaConnection $connection */

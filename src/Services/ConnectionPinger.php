@@ -34,16 +34,14 @@ final class ConnectionPinger
 
         $this->ensureConnectedToPrimary($connection);
 
-        if (!$connection->isConnected()) {
-            return;
-        }
-
-        try {
-            $this->executeDummySql($connection);
-        } catch (DBALException) {
-            $connection->close();
-            $this->ensureConnectedToPrimary($connection);
-            $this->executeDummySql($connection);
+        if ($connection->isConnected()) {
+            try {
+                $this->executeDummySql($connection);
+            } catch (DBALException) {
+                $connection->close();
+                $this->ensureConnectedToPrimary($connection);
+                $this->executeDummySql($connection);
+            }
         }
 
         if (!$entityManager->isOpen()) {
