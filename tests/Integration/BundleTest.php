@@ -9,13 +9,11 @@ use Doctrine\Persistence\ObjectRepository;
 use GeoNative\GarbageCollector\Entity\GarbageCollectorLog;
 use GeoNative\GarbageCollector\Services\GarbageCollector;
 use GeoNative\GarbageCollector\Tests\App\Entity\PruneMe;
-use GeoNative\GarbageCollector\Tests\App\FlakyConnection;
 use GeoNative\GarbageCollector\Tests\App\Repository\PruneMeRepository;
-use GeoNative\GarbageCollector\Tests\App\SpyConnection;
 
-use function array_search;
 use function repository;
-use function str_starts_with;
+
+require_once __DIR__ . '/functions.php';
 
 beforeAll(function () {
     create_schema();
@@ -114,19 +112,15 @@ it('pings the connection of the repository own manager before pruning', function
     /** @var ObjectRepository $logRepository */
     $logRepository = repository(GarbageCollectorLog::class);
 
-    // Given: a stale entity, and a log old enough for the next check to be performed
+    // Given
     /** @var GarbageCollectorLog[] $logs */
     $logs = $logRepository->findBy([], ['id' => 'DESC']);
-    $logs[0]->lastCheckedAt = $logs[0]->lastCheckedAt->modify('-2 hours');
-    save($logs[0]);
-    entityManager()->clear();
-    save(new PruneMe(new DateTimeImmutable('-1 year')));
+    make_next_check_due($logs[0]);
+    save_stale_prune_me();
 
     // PruneMe lives on its own manager and connection, distinct from the log's
-    $entitiesConnection = entityManager(PruneMe::class)->getConnection();
-    $logConnection = entityManager()->getConnection();
-    expect($entitiesConnection)->toBeInstanceOf(FlakyConnection::class);
-    expect($logConnection)->toBeInstanceOf(SpyConnection::class);
+    $entitiesConnection = entities_connection();
+    $logConnection = log_connection();
     expect($entitiesConnection)->not->toBe($logConnection);
     $entitiesConnection->executedSql = [];
     $logConnection->executedSql = [];
@@ -140,36 +134,20 @@ it('pings the connection of the repository own manager before pruning', function
     expect($removed ?? null)->toBe(1);
 
     // The entities connection was pinged before the DELETE it will run
-    $entitiesPing = array_search(
-        $entitiesConnection->getDatabasePlatform()->getDummySelectSQL(),
-        $entitiesConnection->executedSql,
-        true,
-    );
-    $delete = null;
-    foreach ($entitiesConnection->executedSql as $index => $sql) {
-        if (str_starts_with($sql, 'DELETE FROM prune_me')) {
-            $delete = $index;
-            break;
-        }
-    }
-    expect($entitiesPing)->not->toBeFalse('no dummy select was issued on the entities connection');
+    $entitiesPing = dummy_select_index($entitiesConnection);
+    $delete = first_statement_index($entitiesConnection->executedSql, startingWith: 'DELETE FROM prune_me');
+    expect($entitiesPing)->not->toBeNull('no dummy select was issued on the entities connection');
     expect($delete)->not->toBeNull('the prune did not delete anything');
     expect($entitiesPing)->toBeLessThan($delete);
 
     // The log connection was pinged before the first read of its own table
-    $logPing = array_search(
-        $logConnection->getDatabasePlatform()->getDummySelectSQL(),
+    $logPing = dummy_select_index($logConnection);
+    $logSelect = first_statement_index(
         $logConnection->executedSql,
-        true,
+        startingWith: 'SELECT',
+        containing: 'garbage_collector_log',
     );
-    $logSelect = null;
-    foreach ($logConnection->executedSql as $index => $sql) {
-        if (str_starts_with($sql, 'SELECT') && str_contains($sql, 'garbage_collector_log')) {
-            $logSelect = $index;
-            break;
-        }
-    }
-    expect($logPing)->not->toBeFalse('no dummy select was issued on the log connection');
+    expect($logPing)->not->toBeNull('no dummy select was issued on the log connection');
     expect($logSelect)->not->toBeNull('the log table was never read');
     expect($logPing)->toBeLessThan($logSelect, 'the log manager was not pinged before the first read of its table');
 });
@@ -181,27 +159,26 @@ it('recovers a dropped entities connection during a prune', function () {
     /** @var ObjectRepository $logRepository */
     $logRepository = repository(GarbageCollectorLog::class);
 
-    // Given: a stale entity, and a log old enough for the next check to be performed
+    // Given
     /** @var GarbageCollectorLog[] $logs */
     $logs = $logRepository->findBy([], ['id' => 'DESC']);
-    $logs[0]->lastCheckedAt = $logs[0]->lastCheckedAt->modify('-2 hours');
-    save($logs[0]);
-    entityManager()->clear();
-    save(new PruneMe(new DateTimeImmutable('-1 year')));
+    make_next_check_due($logs[0]);
+    save_stale_prune_me();
 
-    /** @var FlakyConnection $entitiesConnection */
-    $entitiesConnection = entityManager(PruneMe::class)->getConnection();
-    expect($entitiesConnection)->toBeInstanceOf(FlakyConnection::class);
+    $entitiesConnection = entities_connection();
     $entitiesConnection->executedSql = [];
     $entitiesConnection->failNextQuery = true;
 
-    // When: the entities connection drops the way an idle MySQL connection does, right before the tick
+    // When
+    // The entities connection drops the way an idle MySQL connection does, right before the tick
     foreach ($garbageCollector->prune() as $class => $removed) {
         break;
     }
 
-    // Then: the tick still deleted the stale row and logged it, despite the dropped connection
+    // Then
+    // The tick still deleted the stale row and logged it, despite the dropped connection
     expect($removed ?? null)->toBe(1);
+    entityManager()->clear();
     /** @var GarbageCollectorLog[] $newLogs */
     $newLogs = $logRepository->findBy([], ['id' => 'DESC']);
     expect($newLogs[0]->removed)->toBe(1);
@@ -213,13 +190,7 @@ it('recovers a dropped entities connection during a prune', function () {
     expect($entitiesConnection->executedSql[1] ?? null)
         ->toBe($dummySelect, 'the dropped connection was not retried after being closed');
 
-    $delete = null;
-    foreach ($entitiesConnection->executedSql as $index => $sql) {
-        if (str_starts_with($sql, 'DELETE FROM prune_me')) {
-            $delete = $index;
-            break;
-        }
-    }
+    $delete = first_statement_index($entitiesConnection->executedSql, startingWith: 'DELETE FROM prune_me');
     expect($delete)->not->toBeNull('the prune did not delete anything');
     expect($delete)->toBeGreaterThan(1);
 });
