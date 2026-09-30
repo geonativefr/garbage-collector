@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use GeoNative\GarbageCollector\Entity\GarbageCollectorLog;
+use GeoNative\GarbageCollector\Services\GarbageCollector;
 use GeoNative\GarbageCollector\Tests\App\Entity\PruneMe;
 use GeoNative\GarbageCollector\Tests\App\FlakyConnection;
 use GeoNative\GarbageCollector\Tests\App\SpyConnection;
@@ -17,6 +18,28 @@ function make_next_check_due(GarbageCollectorLog $log): void
 function save_stale_prune_me(): void
 {
     save(new PruneMe(new DateTimeImmutable('-1 year')));
+}
+
+/**
+ * @param DateTimeImmutable[] $createdAt
+ *
+ * @return PruneMe[]
+ */
+function save_prune_me(DateTimeImmutable ...$createdAt): array
+{
+    $entities = array_map(static fn (DateTimeImmutable $date) => new PruneMe($date), $createdAt);
+    save(...$entities);
+
+    return $entities;
+}
+
+function prune_first_class(GarbageCollector $garbageCollector): ?int
+{
+    foreach ($garbageCollector->prune() as $removed) {
+        return $removed;
+    }
+
+    return null;
 }
 
 function entities_connection(): FlakyConnection
@@ -42,6 +65,14 @@ function dummy_select_index(FlakyConnection|SpyConnection $connection): ?int
     $index = array_search($connection->getDatabasePlatform()->getDummySelectSQL(), $connection->executedSql, true);
 
     return false === $index ? null : $index;
+}
+
+/**
+ * @param string[] $executedSql
+ */
+function count_statements(array $executedSql, string $startingWith): int
+{
+    return count(array_filter($executedSql, static fn (string $sql) => str_starts_with($sql, $startingWith)));
 }
 
 /**

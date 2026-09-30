@@ -44,6 +44,11 @@ php bin/console doctrine:schema:update --dump-sql --force
     2. `pruneStaleEntities()` should actually perform removals and return the number of entities which have been removed.
 
 If your entities should be pruned against a DateTime column, you can use `GeoNative\GarbageCollector\PruneStaleEntitiesTrait` to get started faster.
+The trait deletes the stale entities in batches of 1 000: it reads the identifiers of the oldest stale entities
+on the date column's index, then deletes them by identifier, so that each DELETE locks only the rows it removes.
+Index that column, and override `getPruneBatchSize()` to change the batch size. Keep it well below 9 000 on MySQL:
+a longer list of identifiers exceeds the default `range_optimizer_max_mem_size` and the DELETE falls back to a
+full table scan.
 
 ## Usage
 

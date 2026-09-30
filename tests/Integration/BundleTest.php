@@ -194,3 +194,103 @@ it('recovers a dropped entities connection during a prune', function () {
     expect($delete)->not->toBeNull('the prune did not delete anything');
     expect($delete)->toBeGreaterThan(1);
 });
+
+it('prunes the stale entities in batches', function () {
+    /** @var GarbageCollector $garbageCollector */
+    $garbageCollector = container()->get(GarbageCollector::class);
+
+    /** @var ObjectRepository $logRepository */
+    $logRepository = repository(GarbageCollectorLog::class);
+
+    // Given
+    /** @var GarbageCollectorLog[] $logs */
+    $logs = $logRepository->findBy([], ['id' => 'DESC']);
+    make_next_check_due($logs[0]);
+    save_prune_me(
+        new DateTimeImmutable('-1 year'),
+        new DateTimeImmutable('-11 months'),
+        new DateTimeImmutable('-10 months'),
+        new DateTimeImmutable('-9 months'),
+        new DateTimeImmutable('-8 months'),
+    );
+
+    $entitiesConnection = entities_connection();
+    $entitiesConnection->executedSql = [];
+
+    // When
+    $removed = prune_first_class($garbageCollector);
+
+    // Then
+    // The prune batch size of the repository is 2: two full batches, then the last stale entity
+    expect($removed)->toBe(5);
+    expect(count_statements($entitiesConnection->executedSql, 'DELETE FROM prune_me'))->toBe(3);
+    entityManager(PruneMe::class)->clear();
+    $staleEntities = repository(PruneMe::class)->createQueryBuilder('o')
+        ->where('o.createdAt < :pruneDate')
+        ->setParameter('pruneDate', new DateTimeImmutable('-6 months'))
+        ->getQuery()
+        ->getResult();
+    expect($staleEntities)->toBe([]);
+});
+
+it('keeps the entities newer than the prune date', function () {
+    /** @var GarbageCollector $garbageCollector */
+    $garbageCollector = container()->get(GarbageCollector::class);
+
+    /** @var ObjectRepository $logRepository */
+    $logRepository = repository(GarbageCollectorLog::class);
+
+    // Given
+    /** @var GarbageCollectorLog[] $logs */
+    $logs = $logRepository->findBy([], ['id' => 'DESC']);
+    make_next_check_due($logs[0]);
+    save_prune_me(
+        new DateTimeImmutable('-1 year'),
+        new DateTimeImmutable('-11 months'),
+        new DateTimeImmutable('-10 months'),
+    );
+    $retainedEntities = save_prune_me(
+        new DateTimeImmutable('-5 months'),
+        new DateTimeImmutable('-1 day'),
+    );
+    $retainedIds = array_map(static fn (PruneMe $entity) => (string) $entity->id, $retainedEntities);
+
+    // When
+    $removed = prune_first_class($garbageCollector);
+
+    // Then
+    expect($removed)->toBe(3);
+    entityManager(PruneMe::class)->clear();
+    $remainingIds = array_map(
+        static fn (PruneMe $entity) => (string) $entity->id,
+        repository(PruneMe::class)->findAll(),
+    );
+    expect($remainingIds)->toContain(...$retainedIds);
+});
+
+it('prunes the stale entities sharing a prune date across batches', function () {
+    /** @var GarbageCollector $garbageCollector */
+    $garbageCollector = container()->get(GarbageCollector::class);
+
+    /** @var ObjectRepository $logRepository */
+    $logRepository = repository(GarbageCollectorLog::class);
+
+    // Given
+    /** @var GarbageCollectorLog[] $logs */
+    $logs = $logRepository->findBy([], ['id' => 'DESC']);
+    make_next_check_due($logs[0]);
+    $sharedDate = new DateTimeImmutable('2024-01-15 08:40:59');
+    save_prune_me(
+        new DateTimeImmutable('2024-01-15 08:40:58'),
+        $sharedDate,
+        $sharedDate,
+        $sharedDate,
+    );
+
+    // When
+    $removed = prune_first_class($garbageCollector);
+
+    // Then
+    // Three stale entities share a date that the batches of 2 split
+    expect($removed)->toBe(4);
+});
