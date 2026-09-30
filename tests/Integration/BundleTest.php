@@ -279,13 +279,16 @@ it('prunes the stale entities sharing a prune date across batches', function () 
     /** @var GarbageCollectorLog[] $logs */
     $logs = $logRepository->findBy([], ['id' => 'DESC']);
     make_next_check_due($logs[0]);
-    $sharedDate = new DateTimeImmutable('2024-01-15 08:40:59');
+    $sharedDate = new DateTimeImmutable('-7 months');
     save_prune_me(
-        new DateTimeImmutable('2024-01-15 08:40:58'),
+        new DateTimeImmutable('-8 months'),
         $sharedDate,
         $sharedDate,
         $sharedDate,
     );
+
+    $entitiesConnection = entities_connection();
+    $entitiesConnection->executedSql = [];
 
     // When
     $removed = prune_first_class($garbageCollector);
@@ -293,4 +296,5 @@ it('prunes the stale entities sharing a prune date across batches', function () 
     // Then
     // Three stale entities share a date that the batches of 2 split
     expect($removed)->toBe(4);
+    expect(count_statements($entitiesConnection->executedSql, 'DELETE FROM prune_me'))->toBe(2);
 });
