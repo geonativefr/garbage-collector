@@ -38,6 +38,11 @@ final class PruneMeRepository extends ServiceEntityRepository implements Prunabl
         return new DateTimeImmutable('-6 months');
     }
 
+    public function getPruneBatchSize(): int
+    {
+        return 2;
+    }
+
     public function getGarbageCollectorCheckInterval(): DateInterval
     {
         return DateInterval::createFromDateString('1 hour');
