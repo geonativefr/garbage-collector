@@ -23,7 +23,8 @@
     },
     "require-dev": {
         "pestphp/pest": "^4.3",
-        "symfony/yaml": "^7.4 || ^8.0"
+        "symfony/yaml": "^7.4 || ^8.0",
+        "react/event-loop": "^1.6"
     },
     "autoload": {
         "psr-4": {

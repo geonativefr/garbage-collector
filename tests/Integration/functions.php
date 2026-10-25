@@ -2,11 +2,14 @@
 
 declare(strict_types=1);
 
+use GeoNative\GarbageCollector\Command\GarbageCollectorCommand;
 use GeoNative\GarbageCollector\Entity\GarbageCollectorLog;
 use GeoNative\GarbageCollector\Services\GarbageCollector;
 use GeoNative\GarbageCollector\Tests\App\Entity\PruneMe;
 use GeoNative\GarbageCollector\Tests\App\FlakyConnection;
 use GeoNative\GarbageCollector\Tests\App\SpyConnection;
+use React\EventLoop\Loop;
+use Symfony\Component\Console\Tester\CommandTester;
 
 function make_next_check_due(GarbageCollectorLog $log): void
 {
@@ -92,4 +95,55 @@ function first_statement_index(array $executedSql, ?string $startingWith = null,
     }
 
     return null;
+}
+
+function garbage_collector_command(): GarbageCollectorCommand
+{
+    /** @var GarbageCollector $garbageCollector */
+    $garbageCollector = container()->get(GarbageCollector::class);
+
+    return new GarbageCollectorCommand($garbageCollector);
+}
+
+function make_latest_check_due(): void
+{
+    /** @var GarbageCollectorLog[] $logs */
+    $logs = repository(GarbageCollectorLog::class)->findBy([], ['id' => 'DESC'], 1);
+    if ([] !== $logs) {
+        make_next_check_due($logs[0]);
+    }
+}
+
+/**
+ * @return PruneMe[]
+ */
+function stale_prune_me(): array
+{
+    return repository(PruneMe::class)->createQueryBuilder('o')
+        ->where('o.createdAt < :pruneDate')
+        ->setParameter('pruneDate', new DateTimeImmutable('-6 months'))
+        ->getQuery()
+        ->getResult();
+}
+
+/**
+ * Runs the looping command until it stops, the signal being sent from inside the first pass, right
+ * before the stale rows are deleted. A safety timer ends a loop that ignores the signal.
+ *
+ * @return bool whether the safety timer had to end the loop
+ */
+function run_loop_signalled_in_pass(CommandTester $commandTester, int $signal, string $interval): bool
+{
+    entities_connection()->beforeNextStatement = static fn () => posix_kill(posix_getpid(), $signal);
+    $commandTester->execute(['--loop' => $interval]);
+
+    $timedOut = false;
+    $safetyTimer = Loop::addTimer(2, static function () use (&$timedOut): void {
+        $timedOut = true;
+        Loop::stop();
+    });
+    Loop::run();
+    Loop::cancelTimer($safetyTimer);
+
+    return $timedOut;
 }
