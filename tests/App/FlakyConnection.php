@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GeoNative\GarbageCollector\Tests\App;
 
+use Closure;
 use Doctrine\DBAL\Cache\QueryCacheProfile;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Driver\AbstractException as DriverException;
@@ -31,6 +32,11 @@ final class FlakyConnection extends Connection
     public array $executedSql = [];
 
     public bool $failNextQuery = false;
+
+    /**
+     * Runs once, just before the next statement is executed, so a test can act from inside a prune.
+     */
+    public ?Closure $beforeNextStatement = null;
 
     public function isConnected(): bool
     {
@@ -60,6 +66,12 @@ final class FlakyConnection extends Connection
 
     public function executeStatement(string $sql, array $params = [], array $types = []): int|string
     {
+        if (null !== $this->beforeNextStatement) {
+            $hook = $this->beforeNextStatement;
+            $this->beforeNextStatement = null;
+            $hook();
+        }
+
         $this->executedSql[] = $sql;
 
         return parent::executeStatement($sql, $params, $types);

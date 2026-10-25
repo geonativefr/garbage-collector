@@ -10,7 +10,6 @@ use GeoNative\GarbageCollector\Entity\GarbageCollectorLog;
 use GeoNative\GarbageCollector\Services\GarbageCollector;
 use GeoNative\GarbageCollector\Tests\App\Entity\PruneMe;
 use GeoNative\GarbageCollector\Tests\App\Repository\PruneMeRepository;
-use React\EventLoop\Loop;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -309,30 +308,54 @@ it('stops the loop with a success after the pass in progress on SIGTERM', functi
     $commandTester = new CommandTester(garbage_collector_command());
 
     // When
-    $commandTester->execute(['--loop' => '60']);
-    Loop::futureTick(fn () => posix_kill(posix_getpid(), SIGTERM));
-    Loop::run();
+    // The signal arrives from inside the pass, right before the stale row is deleted
+    $timedOut = run_loop_signalled_in_pass($commandTester, SIGTERM, '60');
 
     // Then
     entityManager(PruneMe::class)->clear();
+    expect($timedOut)->toBeFalse('the loop ignored the signal');
     expect($commandTester->getStatusCode())->toBe(Command::SUCCESS);
     expect($commandTester->getDisplay())->toContain('Removed 1 entities from ' . PruneMe::class);
+    expect($commandTester->getDisplay())->toContain('Done.');
     expect(stale_prune_me())->toBe([]);
+    expect(pcntl_signal_get_handler(SIGTERM))->toBe(SIG_DFL);
+    expect(pcntl_signal_get_handler(SIGINT))->toBe(SIG_DFL);
+})->skip(!extension_loaded('pcntl'), 'ext-pcntl is required');
+
+it('runs no other pass once the signal was received', function () {
+    // Given
+    make_latest_check_due();
+    save_stale_prune_me();
+    $commandTester = new CommandTester(garbage_collector_command());
+
+    // When
+    // With an interval this short, a pass would start again at once if the timers were still armed
+    $timedOut = run_loop_signalled_in_pass($commandTester, SIGTERM, '0.05');
+
+    // Then
+    expect($timedOut)->toBeFalse('the loop ignored the signal');
+    expect($commandTester->getStatusCode())->toBe(Command::SUCCESS);
+    expect(substr_count($commandTester->getDisplay(), 'Cleaning up'))->toBe(1);
 })->skip(!extension_loaded('pcntl'), 'ext-pcntl is required');
 
 it('stops the loop with a success after the pass in progress on SIGINT', function () {
     // Given
     make_latest_check_due();
+    save_stale_prune_me();
     $commandTester = new CommandTester(garbage_collector_command());
 
     // When
-    $commandTester->execute(['--loop' => '60']);
-    Loop::futureTick(fn () => posix_kill(posix_getpid(), SIGINT));
-    Loop::run();
+    $timedOut = run_loop_signalled_in_pass($commandTester, SIGINT, '60');
 
     // Then
+    entityManager(PruneMe::class)->clear();
+    expect($timedOut)->toBeFalse('the loop ignored the signal');
     expect($commandTester->getStatusCode())->toBe(Command::SUCCESS);
+    expect($commandTester->getDisplay())->toContain('Removed 1 entities from ' . PruneMe::class);
     expect($commandTester->getDisplay())->toContain('Done.');
+    expect(stale_prune_me())->toBe([]);
+    expect(pcntl_signal_get_handler(SIGTERM))->toBe(SIG_DFL);
+    expect(pcntl_signal_get_handler(SIGINT))->toBe(SIG_DFL);
 })->skip(!extension_loaded('pcntl'), 'ext-pcntl is required');
 
 it('runs a single pass without registering any signal handler', function () {
@@ -350,4 +373,8 @@ it('runs a single pass without registering any signal handler', function () {
     expect($commandTester->getDisplay())->toContain('Removed 1 entities from ' . PruneMe::class);
     expect($commandTester->getDisplay())->not->toContain('Waiting');
     expect(stale_prune_me())->toBe([]);
+    if (extension_loaded('pcntl')) {
+        expect(pcntl_signal_get_handler(SIGTERM))->toBe(SIG_DFL);
+        expect(pcntl_signal_get_handler(SIGINT))->toBe(SIG_DFL);
+    }
 });
