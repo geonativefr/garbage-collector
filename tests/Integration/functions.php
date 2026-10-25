@@ -9,6 +9,7 @@ use GeoNative\GarbageCollector\Tests\App\Entity\PruneMe;
 use GeoNative\GarbageCollector\Tests\App\FlakyConnection;
 use GeoNative\GarbageCollector\Tests\App\SpyConnection;
 use React\EventLoop\Loop;
+use React\EventLoop\TimerInterface;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\ApplicationTester;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -157,19 +158,32 @@ function run_loop_signalled_in_pass(CommandTester $commandTester, int $signal, s
 /**
  * Same as run_loop_signalled_in_pass(), through the console application. Once the application has
  * returned, the loop is run again as react/event-loop runs it on shutdown: a loop left for then runs
- * with the signal handlers the application restored.
+ * with the signal handlers the application restored, here a witness handler so that a signal still
+ * pending fails the test instead of taking its default action. The safety timer stays armed through
+ * that second run unless the pass already ran and the loop stopped on the signal, as it would then
+ * be waited for.
  *
  * @return bool whether the safety timer had to end the loop
  */
 function run_application_loop_signalled_in_pass(ApplicationTester $applicationTester, int $signal, string $interval): bool
 {
-    $timedOut = run_signalled_in_pass(
-        $signal,
-        static fn () => $applicationTester->run(['command' => 'gc:entities:prune', '--loop' => $interval]),
-    );
-    Loop::run();
+    pcntl_signal($signal, static function (): void {
+    });
 
-    return $timedOut;
+    try {
+        return run_signalled_in_pass(
+            $signal,
+            static function (TimerInterface $safetyTimer) use ($applicationTester, $interval): void {
+                $applicationTester->run(['command' => 'gc:entities:prune', '--loop' => $interval]);
+                if (null === entities_connection()->beforeNextStatement) {
+                    Loop::cancelTimer($safetyTimer);
+                }
+                Loop::run();
+            },
+        );
+    } finally {
+        pcntl_signal($signal, SIG_DFL);
+    }
 }
 
 /**
@@ -184,7 +198,7 @@ function run_signalled_in_pass(int $signal, Closure $runCommand): bool
         $timedOut = true;
         Loop::stop();
     });
-    $runCommand();
+    $runCommand($safetyTimer);
     Loop::cancelTimer($safetyTimer);
 
     return $timedOut;
