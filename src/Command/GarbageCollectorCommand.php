@@ -70,6 +70,7 @@ final class GarbageCollectorCommand extends Command
                 Loop::addPeriodicTimer((float) $interval, fn () => $io->comment("Waiting {$interval}s...")),
             ];
             $this->stopLoopOnTermination($io, $timers);
+            Loop::run();
         } else {
             $this->runGarbageCollector($io);
         }

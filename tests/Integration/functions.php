@@ -9,7 +9,10 @@ use GeoNative\GarbageCollector\Tests\App\Entity\PruneMe;
 use GeoNative\GarbageCollector\Tests\App\FlakyConnection;
 use GeoNative\GarbageCollector\Tests\App\SpyConnection;
 use React\EventLoop\Loop;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Tester\ApplicationTester;
 use Symfony\Component\Console\Tester\CommandTester;
+use Symfony\Component\EventDispatcher\EventDispatcher;
 
 function make_next_check_due(GarbageCollectorLog $log): void
 {
@@ -105,6 +108,20 @@ function garbage_collector_command(): GarbageCollectorCommand
     return new GarbageCollectorCommand($garbageCollector);
 }
 
+/**
+ * A console application with an event dispatcher: it registers its own signal handlers around the
+ * command, and restores the previous ones when the command returns.
+ */
+function garbage_collector_application(): ApplicationTester
+{
+    $application = new Application();
+    $application->setAutoExit(false);
+    $application->setDispatcher(new EventDispatcher());
+    $application->addCommand(garbage_collector_command());
+
+    return new ApplicationTester($application);
+}
+
 function make_latest_check_due(): void
 {
     /** @var GarbageCollectorLog[] $logs */
@@ -134,15 +151,40 @@ function stale_prune_me(): array
  */
 function run_loop_signalled_in_pass(CommandTester $commandTester, int $signal, string $interval): bool
 {
+    return run_signalled_in_pass($signal, static fn () => $commandTester->execute(['--loop' => $interval]));
+}
+
+/**
+ * Same as run_loop_signalled_in_pass(), through the console application. Once the application has
+ * returned, the loop is run again as react/event-loop runs it on shutdown: a loop left for then runs
+ * with the signal handlers the application restored.
+ *
+ * @return bool whether the safety timer had to end the loop
+ */
+function run_application_loop_signalled_in_pass(ApplicationTester $applicationTester, int $signal, string $interval): bool
+{
+    $timedOut = run_signalled_in_pass(
+        $signal,
+        static fn () => $applicationTester->run(['command' => 'gc:entities:prune', '--loop' => $interval]),
+    );
+    Loop::run();
+
+    return $timedOut;
+}
+
+/**
+ * @return bool whether the safety timer had to end the loop
+ */
+function run_signalled_in_pass(int $signal, Closure $runCommand): bool
+{
     entities_connection()->beforeNextStatement = static fn () => posix_kill(posix_getpid(), $signal);
-    $commandTester->execute(['--loop' => $interval]);
 
     $timedOut = false;
     $safetyTimer = Loop::addTimer(2, static function () use (&$timedOut): void {
         $timedOut = true;
         Loop::stop();
     });
-    Loop::run();
+    $runCommand();
     Loop::cancelTimer($safetyTimer);
 
     return $timedOut;

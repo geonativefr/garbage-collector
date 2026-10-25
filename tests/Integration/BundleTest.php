@@ -378,3 +378,21 @@ it('runs a single pass without registering any signal handler', function () {
         expect(pcntl_signal_get_handler(SIGINT))->toBe(SIG_DFL);
     }
 });
+
+it('stops the loop with a success after the pass in progress on SIGTERM through a console application', function () {
+    // Given
+    make_latest_check_due();
+    save_stale_prune_me();
+    $applicationTester = garbage_collector_application();
+
+    // When
+    $timedOut = run_application_loop_signalled_in_pass($applicationTester, SIGTERM, '60');
+
+    // Then
+    entityManager(PruneMe::class)->clear();
+    expect($timedOut)->toBeFalse('the loop ignored the signal');
+    expect($applicationTester->getStatusCode())->toBe(Command::SUCCESS);
+    expect($applicationTester->getDisplay())->toContain('Removed 1 entities from ' . PruneMe::class);
+    expect($applicationTester->getDisplay())->toContain('Done.');
+    expect(stale_prune_me())->toBe([]);
+})->skip(!extension_loaded('pcntl'), 'ext-pcntl is required');
