@@ -71,6 +71,7 @@ php bin/console gc:entities:prune --loop=5
 ```
 
 The Garbage Collector will pass every 5 seconds.
+SIGTERM and SIGINT stop it after the current pass (this needs `ext-pcntl`; without it, the signals keep their default action).
 
 Before pruning a class, the Garbage Collector checks the connection of the entity manager owning it,
 and reconnects it if the server has dropped it. A repository checked only once in a while leaves its

@@ -10,6 +10,9 @@ use GeoNative\GarbageCollector\Entity\GarbageCollectorLog;
 use GeoNative\GarbageCollector\Services\GarbageCollector;
 use GeoNative\GarbageCollector\Tests\App\Entity\PruneMe;
 use GeoNative\GarbageCollector\Tests\App\Repository\PruneMeRepository;
+use React\EventLoop\Loop;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Tester\CommandTester;
 
 use function repository;
 
@@ -297,4 +300,54 @@ it('prunes the stale entities sharing a prune date across batches', function () 
     // Three stale entities share a date that the batches of 2 split
     expect($removed)->toBe(4);
     expect(count_statements($entitiesConnection->executedSql, 'DELETE FROM prune_me'))->toBe(2);
+});
+
+it('stops the loop with a success after the pass in progress on SIGTERM', function () {
+    // Given
+    make_latest_check_due();
+    save_stale_prune_me();
+    $commandTester = new CommandTester(garbage_collector_command());
+
+    // When
+    $commandTester->execute(['--loop' => '60']);
+    Loop::futureTick(fn () => posix_kill(posix_getpid(), SIGTERM));
+    Loop::run();
+
+    // Then
+    entityManager(PruneMe::class)->clear();
+    expect($commandTester->getStatusCode())->toBe(Command::SUCCESS);
+    expect($commandTester->getDisplay())->toContain('Removed 1 entities from ' . PruneMe::class);
+    expect(stale_prune_me())->toBe([]);
+})->skip(!extension_loaded('pcntl'), 'ext-pcntl is required');
+
+it('stops the loop with a success after the pass in progress on SIGINT', function () {
+    // Given
+    make_latest_check_due();
+    $commandTester = new CommandTester(garbage_collector_command());
+
+    // When
+    $commandTester->execute(['--loop' => '60']);
+    Loop::futureTick(fn () => posix_kill(posix_getpid(), SIGINT));
+    Loop::run();
+
+    // Then
+    expect($commandTester->getStatusCode())->toBe(Command::SUCCESS);
+    expect($commandTester->getDisplay())->toContain('Done.');
+})->skip(!extension_loaded('pcntl'), 'ext-pcntl is required');
+
+it('runs a single pass without registering any signal handler', function () {
+    // Given
+    make_latest_check_due();
+    save_stale_prune_me();
+    $commandTester = new CommandTester(garbage_collector_command());
+
+    // When
+    $commandTester->execute([]);
+
+    // Then
+    entityManager(PruneMe::class)->clear();
+    expect($commandTester->getStatusCode())->toBe(Command::SUCCESS);
+    expect($commandTester->getDisplay())->toContain('Removed 1 entities from ' . PruneMe::class);
+    expect($commandTester->getDisplay())->not->toContain('Waiting');
+    expect(stale_prune_me())->toBe([]);
 });

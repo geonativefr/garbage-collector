@@ -6,6 +6,7 @@ namespace GeoNative\GarbageCollector\Command;
 
 use GeoNative\GarbageCollector\Services\GarbageCollector;
 use React\EventLoop\Loop;
+use React\EventLoop\TimerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Command\LockableTrait;
@@ -15,6 +16,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 use function class_exists;
+use function function_exists;
 use function is_numeric;
 
 #[AsCommand(
@@ -63,13 +65,43 @@ final class GarbageCollectorCommand extends Command
             }
             Loop::futureTick(fn () => $this->runGarbageCollector($io));
             Loop::futureTick(fn () => $io->comment("Waiting {$interval}s..."));
-            Loop::addPeriodicTimer((float) $interval, fn () => $this->runGarbageCollector($io));
-            Loop::addPeriodicTimer((float) $interval, fn () => $io->comment("Waiting {$interval}s..."));
+            $timers = [
+                Loop::addPeriodicTimer((float) $interval, fn () => $this->runGarbageCollector($io)),
+                Loop::addPeriodicTimer((float) $interval, fn () => $io->comment("Waiting {$interval}s...")),
+            ];
+            $this->stopLoopOnTermination($io, $timers);
         } else {
             $this->runGarbageCollector($io);
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * @param TimerInterface[] $timers
+     */
+    private function stopLoopOnTermination(SymfonyStyle $io, array $timers): void
+    {
+        if (!function_exists('pcntl_signal')) {
+            $io->comment('ext-pcntl is not available: SIGTERM and SIGINT will not stop the loop gracefully.');
+
+            return;
+        }
+
+        $signals = [SIGTERM, SIGINT];
+        $stop = null;
+        $stop = static function () use (&$stop, $signals, $timers): void {
+            foreach ($timers as $timer) {
+                Loop::cancelTimer($timer);
+            }
+            foreach ($signals as $signal) {
+                Loop::removeSignal($signal, $stop);
+            }
+            Loop::stop();
+        };
+        foreach ($signals as $signal) {
+            Loop::addSignal($signal, $stop);
+        }
     }
 
     private function runGarbageCollector(SymfonyStyle $io): void
